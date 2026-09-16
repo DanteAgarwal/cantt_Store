@@ -4,7 +4,33 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "env": [
+        "NODE_ENV",
+        "DATABASE_URL",
+        "DIRECT_URL",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_JWT_SECRET",
+        "SUPABASE_BUCKET_PRODUCT_IMAGES",
+        "SUPABASE_BUCKET_BANNERS",
+        "SUPABASE_BUCKET_CMS",
+        "SUPABASE_BUCKET_AVATARS",
+        "UPSTASH_REDIS_REST_URL",
+        "UPSTASH_REDIS_REST_TOKEN",
+        "REVALIDATE_SECRET",
+        "WEB_URL",
+        "ADMIN_URL",
+        "PORT",
+        "EMAIL_PROVIDER_API_KEY",
+        "EMAIL_FROM",
+        "PAYMENT_GATEWAY_KEY_ID",
+        "PAYMENT_GATEWAY_KEY_SECRET",
+        "PAYMENT_WEBHOOK_SECRET"
+      ]
     },
     "dev": {
       "cache": false,
@@ -19,3 +45,4 @@
     }
   }
 }
+

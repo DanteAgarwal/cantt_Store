@@ -191,7 +191,11 @@ const fallbackProducts = [
 let isDbHealthy = true;
 let lastCircuitTripTime = 0;
 const CIRCUIT_COOLDOWN_MS = 60 * 1000; // 60 seconds
-const DB_TIMEOUT_MS = 400; // 400ms max for any database query
+// Serverless cold start: TCP handshake to ap-northeast-2 + Prisma engine init
+// can take 3-5s on first request. 8s gives real connections room while still
+// failing fast if the DB is genuinely unreachable. Local dev stays fast because
+// the connection pool is already warm after the first request.
+const DB_TIMEOUT_MS = process.env.NODE_ENV === 'production' ? 8000 : 1500;
 
 const queryCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes in-memory cache

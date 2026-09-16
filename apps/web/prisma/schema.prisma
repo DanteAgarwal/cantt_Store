@@ -1,0 +1,541 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // pooled (PgBouncer, port 6543) — runtime queries
+  directUrl = env("DIRECT_URL")     // direct (port 5432) — migrations only
+}
+
+// ================= ENUMS =================
+
+enum Role {
+  CUSTOMER
+  STAFF
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  RETURNED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  COD
+  ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum AddressType {
+  SHIPPING
+  BILLING
+}
+
+enum TagType {
+  GENERAL
+  FORCE_REGIMENT
+  SEASON
+  COLLECTION
+}
+
+enum CmsSectionType {
+  HERO_CAROUSEL
+  CATEGORY_GRID
+  PRODUCT_CAROUSEL
+  BANNER
+  TESTIMONIALS
+  FORCE_REGIMENT_STRIP
+}
+
+// ================= AUTH / PROFILE =================
+// Supabase owns `auth.users` (in the `auth` schema). This table mirrors/extends
+// it 1:1 in `public`, populated by a DB trigger on auth.users insert (see trigger.sql).
+
+model Profile {
+  id        String   @id @db.Uuid // == auth.users.id
+  fullName  String?
+  phone     String?  @unique
+  role      Role     @default(CUSTOMER)
+  avatarUrl String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  addresses  Address[]
+  cart       Cart?
+  wishlist   Wishlist?
+  orders     Order[]
+  reviews    Review[]
+  auditLogs  AuditLog[]
+
+  @@map("profiles")
+}
+
+model Address {
+  id        String      @id @default(uuid()) @db.Uuid
+  profileId String      @db.Uuid
+  profile   Profile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  type      AddressType @default(SHIPPING)
+  fullName  String
+  phone     String
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  country   String      @default("India")
+  isDefault Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  shippingOrders Order[] @relation("ShippingAddress")
+  billingOrders  Order[] @relation("BillingAddress")
+
+  @@index([profileId])
+}
+
+// ================= CATALOGUE =================
+
+model Category {
+  id             String     @id @default(uuid()) @db.Uuid
+  name           String
+  slug           String     @unique
+  description    String?
+  imageUrl       String?
+  altText        String?
+  parentId       String?    @db.Uuid
+  parent         Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Category[] @relation("CategoryTree")
+  sortOrder      Int        @default(0)
+  isActive       Boolean    @default(true)
+  isFeatured     Boolean    @default(false)
+  seoTitle       String?
+  seoDescription String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  products ProductCategory[]
+
+  @@index([parentId])
+  @@index([slug])
+}
+
+model Brand {
+  id       String    @id @default(uuid()) @db.Uuid
+  name     String
+  slug     String    @unique
+  logoUrl  String?
+  products Product[]
+}
+
+// Cross-cutting taxonomy: Force/Regiment, Season, Collection
+// These are TAGS, not categories — see SRS §3.2 / §4.4
+model Tag {
+  id       String       @id @default(uuid()) @db.Uuid
+  name     String
+  slug     String       @unique
+  type     TagType      @default(GENERAL)
+  products ProductTag[]
+}
+
+model Attribute {
+  id     String           @id @default(uuid()) @db.Uuid
+  name   String           @unique // Size, Colour, Material...
+  values AttributeValue[]
+}
+
+model AttributeValue {
+  id           String                  @id @default(uuid()) @db.Uuid
+  attributeId  String                  @db.Uuid
+  attribute    Attribute               @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  value        String                  // "M", "Olive Green"...
+  variantLinks VariantAttributeValue[]
+
+  @@unique([attributeId, value])
+}
+
+model Product {
+  id               String        @id @default(uuid()) @db.Uuid
+  name             String
+  slug             String        @unique
+  description      String?
+  shortDescription String?
+  brandId          String?       @db.Uuid
+  brand            Brand?        @relation(fields: [brandId], references: [id])
+  basePrice        Decimal       @db.Decimal(10, 2)
+  compareAtPrice   Decimal?      @db.Decimal(10, 2)
+  status           ProductStatus @default(DRAFT)
+  isFeatured       Boolean       @default(false)
+  seoTitle         String?
+  seoDescription   String?
+  publishedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  categories    ProductCategory[]
+  tags          ProductTag[]
+  images        ProductImage[]
+  variants      ProductVariant[]
+  reviews       Review[]
+  cartItems     CartItem[]
+  wishlistItems WishlistItem[]
+  orderItems    OrderItem[]
+
+  @@index([status])
+  @@index([slug])
+  @@index([isFeatured])
+}
+
+model ProductCategory {
+  productId  String   @db.Uuid
+  categoryId String   @db.Uuid
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([productId, categoryId])
+}
+
+model ProductTag {
+  productId String  @db.Uuid
+  tagId     String  @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([productId, tagId])
+}
+
+model ProductImage {
+  id        String  @id @default(uuid()) @db.Uuid
+  productId String  @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String  // Supabase Storage CDN URL
+  altText   String? // mandatory in UX but optional in schema; enforce in app layer
+  sortOrder Int     @default(0)
+  isPrimary Boolean @default(false)
+
+  @@index([productId])
+}
+
+model ProductVariant {
+  id             String   @id @default(uuid()) @db.Uuid
+  productId      String   @db.Uuid
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku            String   @unique
+  price          Decimal? @db.Decimal(10, 2) // overrides Product.basePrice if set
+  compareAtPrice Decimal? @db.Decimal(10, 2)
+  weightGrams    Int?
+  isActive       Boolean  @default(true)
+
+  attributeValues VariantAttributeValue[]
+  inventory       Inventory?
+  cartItems       CartItem[]
+  wishlistItems   WishlistItem[]
+  orderItems      OrderItem[]
+
+  @@index([productId])
+}
+
+model VariantAttributeValue {
+  variantId        String         @db.Uuid
+  attributeValueId String         @db.Uuid
+  variant          ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  attributeValue   AttributeValue @relation(fields: [attributeValueId], references: [id], onDelete: Cascade)
+
+  @@id([variantId, attributeValueId])
+}
+
+model Inventory {
+  id        String         @id @default(uuid()) @db.Uuid
+  variantId String         @unique @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity  Int            @default(0)
+  reserved  Int            @default(0) // held during in-flight checkout — prevents overselling
+  lowStockAt Int           @default(5)
+  updatedAt DateTime       @updatedAt
+}
+
+// ================= CART / WISHLIST =================
+
+model Cart {
+  id         String     @id @default(uuid()) @db.Uuid
+  profileId  String?    @unique @db.Uuid
+  profile    Profile?   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  guestToken String?    @unique // signed httpOnly cookie value for guest carts
+  items      CartItem[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model CartItem {
+  id        String         @id @default(uuid()) @db.Uuid
+  cartId    String         @db.Uuid
+  cart      Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String         @db.Uuid
+  product   Product        @relation(fields: [productId], references: [id])
+  variantId String         @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+  quantity  Int            @default(1)
+  addedAt   DateTime       @default(now())
+
+  @@unique([cartId, variantId])
+}
+
+model Wishlist {
+  id        String         @id @default(uuid()) @db.Uuid
+  profileId String         @unique @db.Uuid
+  profile   Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  items     WishlistItem[]
+}
+
+model WishlistItem {
+  id         String          @id @default(uuid()) @db.Uuid
+  wishlistId String          @db.Uuid
+  wishlist   Wishlist        @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  productId  String          @db.Uuid
+  product    Product         @relation(fields: [productId], references: [id])
+  variantId  String?         @db.Uuid
+  variant    ProductVariant? @relation(fields: [variantId], references: [id])
+  addedAt    DateTime        @default(now())
+
+  @@unique([wishlistId, productId, variantId])
+}
+
+// ================= MARKETING =================
+
+model Coupon {
+  id                    String       @id @default(uuid()) @db.Uuid
+  code                  String       @unique
+  discountType          DiscountType
+  discountValue         Decimal      @db.Decimal(10, 2)
+  minOrderValue         Decimal?     @db.Decimal(10, 2)
+  maxDiscount           Decimal?     @db.Decimal(10, 2)
+  usageLimit            Int?
+  usageCount            Int          @default(0)
+  perUserLimit          Int?
+  startsAt              DateTime?
+  expiresAt             DateTime?
+  isActive              Boolean      @default(true)
+  applicableCategoryIds String[]     @default([])
+  applicableProductIds  String[]     @default([])
+
+  orders Order[]
+}
+
+// ================= ORDERS =================
+
+model Order {
+  id                String        @id @default(uuid()) @db.Uuid
+  orderNumber       String        @unique // e.g. CS-100001
+  profileId         String        @db.Uuid
+  profile           Profile       @relation(fields: [profileId], references: [id])
+  status            OrderStatus   @default(PENDING)
+  shippingAddressId String        @db.Uuid
+  shippingAddress   Address       @relation("ShippingAddress", fields: [shippingAddressId], references: [id])
+  billingAddressId  String?       @db.Uuid
+  billingAddress    Address?      @relation("BillingAddress", fields: [billingAddressId], references: [id])
+  subtotal          Decimal       @db.Decimal(10, 2)
+  shippingFee       Decimal       @db.Decimal(10, 2) @default(0)
+  discountAmount    Decimal       @db.Decimal(10, 2) @default(0)
+  taxAmount         Decimal       @db.Decimal(10, 2) @default(0)
+  total             Decimal       @db.Decimal(10, 2)
+  couponId          String?       @db.Uuid
+  coupon            Coupon?       @relation(fields: [couponId], references: [id])
+  paymentMethod     PaymentMethod
+  paymentStatus     PaymentStatus @default(PENDING)
+  placedAt          DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+  payment       Payment?
+  shipment      Shipment?
+
+  @@index([profileId])
+  @@index([status])
+  @@index([orderNumber])
+}
+
+model OrderItem {
+  id                  String         @id @default(uuid()) @db.Uuid
+  orderId             String         @db.Uuid
+  order               Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId           String         @db.Uuid
+  product             Product        @relation(fields: [productId], references: [id])
+  variantId           String         @db.Uuid
+  variant             ProductVariant @relation(fields: [variantId], references: [id])
+  productNameSnapshot String         // frozen product name at order time — immutable
+  variantSnapshot     String?        // frozen "M / Olive Green" at order time — immutable
+  unitPrice           Decimal        @db.Decimal(10, 2) // frozen price at order time
+  quantity            Int
+  lineTotal           Decimal        @db.Decimal(10, 2)
+
+  @@index([orderId])
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(uuid()) @db.Uuid
+  orderId   String      @db.Uuid
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  changedBy String?     @db.Uuid // admin profile id; null = system
+  changedAt DateTime    @default(now())
+
+  @@index([orderId])
+}
+
+model Payment {
+  id               String        @id @default(uuid()) @db.Uuid
+  orderId          String        @unique @db.Uuid
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  gateway          String?       // "razorpay" | "cod" | "mock"
+  gatewayOrderId   String?
+  gatewayPaymentId String?
+  amount           Decimal       @db.Decimal(10, 2)
+  status           PaymentStatus @default(PENDING)
+  rawResponse      Json?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+model Shipment {
+  id             String    @id @default(uuid()) @db.Uuid
+  orderId        String    @unique @db.Uuid
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  carrier        String?
+  trackingNumber String?
+  trackingUrl    String?
+  shippedAt      DateTime?
+  deliveredAt    DateTime?
+}
+
+// ================= REVIEWS =================
+
+model Review {
+  id                 String   @id @default(uuid()) @db.Uuid
+  productId          String   @db.Uuid
+  product            Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  profileId          String   @db.Uuid
+  profile            Profile  @relation(fields: [profileId], references: [id])
+  rating             Int      // 1–5
+  title              String?
+  body               String?
+  isVerifiedPurchase Boolean  @default(false)
+  isApproved         Boolean  @default(false) // moderation queue
+  createdAt          DateTime @default(now())
+
+  @@index([productId])
+}
+
+// ================= CMS =================
+
+model CmsPage {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique
+  // Seeded slugs: about-us | contact-us | terms-conditions | privacy-policy |
+  //               shipping-policy | refund-policy | military-goods-usage-policy
+  title       String
+  bodyHtml    String
+  isPublished Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+}
+
+model CmsSection {
+  id        String         @id @default(uuid()) @db.Uuid
+  page      String         @default("home") // "home" for homepage sections
+  type      CmsSectionType
+  title     String?
+  subtitle  String?
+  config    Json           // flexible payload — shape depends on type
+  sortOrder Int            @default(0)
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([page, sortOrder])
+}
+
+model Banner {
+  id             String    @id @default(uuid()) @db.Uuid
+  imageUrl       String
+  mobileImageUrl String?
+  linkUrl        String?
+  title          String?
+  altText        String?
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  startsAt       DateTime?
+  endsAt         DateTime?
+}
+
+model Media {
+  id         String   @id @default(uuid()) @db.Uuid
+  bucket     String   // product-images | banners | cms-media | avatars
+  path       String
+  url        String
+  mimeType   String?
+  sizeBytes  Int?
+  uploadedBy String?  @db.Uuid
+  createdAt  DateTime @default(now())
+
+  @@unique([bucket, path])
+}
+
+// ================= BULK ENQUIRY =================
+
+model BulkOrderEnquiry {
+  id            String   @id @default(uuid()) @db.Uuid
+  fullName      String
+  phone         String
+  email         String?
+  organisation  String?
+  requirement   String
+  quantity      Int?
+  attachmentUrl String?
+  status        String   @default("NEW") // NEW | CONTACTED | CLOSED
+  createdAt     DateTime @default(now())
+
+  @@index([status])
+}
+
+// ================= AUDIT =================
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  profileId  String?  @db.Uuid
+  profile    Profile? @relation(fields: [profileId], references: [id])
+  action     String   // PRODUCT_PUBLISHED | ORDER_STATUS_CHANGED | ...
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([profileId])
+}

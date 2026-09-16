@@ -1,0 +1,45 @@
+# ======== OS ========
+.DS_Store
+Thumbs.db
+
+# ======== Node ========
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ======== Next.js ========
+.next/
+out/
+build/
+
+# ======== NestJS / dist ========
+dist/
+/apps/api/dist/
+
+# ======== Env files ========
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ======== Turbo ========
+.turbo/
+
+# ======== Editor ========
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ======== Prisma ========
+# Keep migrations + schema, ignore generated client
+apps/api/node_modules/.prisma/
+
+# ======== Misc ========
+*.pem
+coverage/
